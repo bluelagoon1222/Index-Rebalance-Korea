@@ -196,11 +196,12 @@ def parse_market_sum(html):
 
 # 지수 구성 대상이 아닌 종목: 우선주(종목코드 끝자리가 0이 아님), ETF·ETN, 스팩, 리츠.
 # 네이버 시가총액 페이지는 이들을 모두 섞어서 주므로 걸러내지 않으면 시총 순위와 편입 후보가 오염된다.
-INELIGIBLE_NAME = re.compile(r"스팩|기업인수목적|리츠|위탁관리부동산|ETN|레버리지|인버스|선물")
+# 주의: '리츠'는 '메리츠금융지주'의 부분문자열이므로 이름 끝에 올 때만 부동산투자회사로 판단한다.
+INELIGIBLE_NAME = re.compile(r"스팩|기업인수목적|위탁관리부동산|ETN|레버리지|인버스|선물|리츠$")
 # ETF 목록 API에서 빠진 상품이 있어도 걸러지도록, ETF 전용 브랜드로 시작하는 이름은 제외한다.
 # (한글 브랜드나 '삼성'처럼 회사명과 겹치는 접두어는 쓰지 않는다)
 ETF_BRAND = re.compile(r"^(KODEX|TIGER|KBSTAR|HANARO|KOSEF|ARIRANG|ACE|SOL|RISE|PLUS|TIMEFOLIO"
-                       r"|TREX|FOCUS|KIWOOM|WOORI|BNK)\b", re.I)
+                       r"|TREX|FOCUS|KIWOOM)\s", re.I)
 
 
 def is_common_stock(code, name, etf_codes):
@@ -216,19 +217,25 @@ def is_common_stock(code, name, etf_codes):
 
 def fetch_universe(h, market):
     """All pages of the market-cap ranking for one market."""
-    out, page, sosok = {}, 1, MARKET_SOSOK[market]
-    while page <= 60:
+    out, page, sosok, quiet = {}, 1, MARKET_SOSOK[market], 0
+    while page <= 80:
         html = h.get("https://finance.naver.com/sise/sise_market_sum.naver", NV,
                       params={"sosok": sosok, "page": page}, mode="text")
         rows = parse_market_sum(html)
-        rows = [r for r in rows if r["code"] not in out]
         if not rows:
-            break
-        for r in rows:
+            break                      # 데이터 행이 없으면 마지막 페이지
+        fresh = [r for r in rows if r["code"] not in out]
+        if not fresh:
+            quiet += 1
+            if quiet >= 2:             # 같은 내용이 두 번 연속이면 끝난 것으로 본다
+                break
+        else:
+            quiet = 0
+        for r in fresh:
             r["market"] = market
             out[r["code"]] = r
         page += 1
-    log("universe", market, len(out), "stocks in", page - 1, "pages")
+    log("universe", market, len(out), "listings in", page - 1, "pages")
     return out
 
 
