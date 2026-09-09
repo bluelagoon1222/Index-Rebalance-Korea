@@ -129,6 +129,7 @@ footer{font-size:12.5px;color:var(--faint);margin-top:16px;line-height:1.6}
     <li><b>Cap 리밸런싱</b>은 FnGuide 반도체 TOP10처럼 상위 2종목 비중을 각 25%로 되돌리는 지수에서 발생합니다. 주가가 오른 대형주는 초과분만큼 팔리고, 그 금액이 하위 종목 매수로 재분배됩니다. 삼성전자·SK하이닉스 매도 물량이 반복되는 이유입니다.</li>
     <li><b>추종자금</b>은 해당 지수를 실물로 복제하는 ETF의 순자산 합계입니다. 레버리지·인버스는 선물로 복제하므로 제외했습니다. 인덱스펀드·연금·기관 벤치마크 자금은 집계에 포함되지 않으므로 실제 수급은 이보다 클 수 있습니다. 표 위 입력칸에서 직접 조정하면 모든 금액이 즉시 다시 계산됩니다.</li>
     <li><b>편입·편출 후보는 시가총액 순위 기반 추정입니다.</b> 실제 심사는 유동시가총액과 산업군별 누적시총 85%, 최소 상장 6개월 등을 함께 보므로 순위가 경계에 걸린 종목은 결과가 달라질 수 있습니다. 공개 경로로 유동시총을 얻을 수 없어 전체 시가총액을 대용치로 썼습니다.</li>
+    <li><b>편입·편출 예상 비중</b>은 시가총액 비중으로 계산합니다. ETF 보유내역의 공시 비중은 소수 둘째 자리까지만 제공돼 소형 구성종목이 0.00~0.01%로 뭉개지기 때문입니다. KOSPI 200·코스닥 150은 시가총액 가중 지수이므로 시총 기준 비중이 실제 패시브 보유 비중에 더 가깝습니다. Cap 리밸런싱 지수는 비중이 20~30%대로 커서 공시 비중을 그대로 씁니다.</li>
     <li><b>구성종목과 비중</b>은 해당 지수를 추종하는 대표 ETF가 매일 공시하는 보유내역에서 가져옵니다. 지수 자체의 공식 구성종목과 소수 종목·소수점 비중에서 차이가 있을 수 있습니다.</li>
   </ul>
 </div>
@@ -239,6 +240,7 @@ function renderPanel(){
       <div class="tile"><div class="k">예상 매수 합계</div><div class="v buy">${eok(buy)}</div><div class="d">${rows.filter(r=>r.flow>0).length}종목</div></div>
       <div class="tile"><div class="k">예상 매도 합계</div><div class="v sell">${eok(Math.abs(sell))}</div><div class="d">${rows.filter(r=>r.flow<0).length}종목</div></div>
     </div>
+    ${(ix.unmatched&&ix.unmatched.length)?`<div class="banner" style="margin:-4px 0 12px">보유내역 중 <b>${ix.unmatched.map(esc).join(', ')}</b> ${ix.unmatched.length>1?'등 '+ix.unmatched.length+'종목':''}은 전종목 목록에서 이름을 찾지 못해 이 표에서 빠졌습니다. 최근 상장·상호변경·분할 종목일 수 있습니다.</div>`:''}
     ${ev?`<div class="note" style="margin:-4px 0 12px">다음 일정 · <b>${esc(ev.review)}</b> — 변경 적용 <b>${ev.effective}</b> (D−${ev.d_effective}), 발표 예상 ${ev.announce}. ${esc(ev.note||'')}</div>`:''}
     <div class="aumbox">
       <label for="aum">추종자금 가정</label>

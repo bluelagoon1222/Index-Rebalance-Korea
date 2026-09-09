@@ -55,11 +55,20 @@ def make_universe():
         rows["KOSPI"].append((code, name, close, mcap_eok))
     for code, name, close, mcap_eok in KOSDAQ_BIG:
         rows["KOSDAQ"].append((code, name, close, mcap_eok))
+    # 지수 대상이 아닌 종목들: 필터가 실제로 걸러내는지 확인하기 위해 섞어 넣는다
+    rows["KOSPI"] += [
+        ("005935", "삼성전자우", 60000, 1580000),      # 우선주 (코드 끝자리 5)
+        ("069500", "KODEX 200", 40000, 260000),        # ETF
+        ("360750", "TIGER 미국S&P500", 22000, 200000),  # ETF
+        ("330590", "이지스레지던스리츠", 5000, 3000),      # 리츠
+        ("456780", "대신밸런스제18호스팩", 2000, 300),     # 스팩
+        ("500001", "삼성 레버리지 WTI원유 ETN", 9000, 5000),
+    ]
     # filler so paging and the 500-stock sanity check are exercised
-    for i in range(620):
-        rows["KOSPI"].append(("9%05d" % i, "코스피기타%d" % i, 5000 + i, max(300, 90000 - i * 140)))
+    for i in range(620):   # 보통주 코드는 끝자리가 0
+        rows["KOSPI"].append(("9%04d0" % i, "코스피기타%d" % i, 5000 + i, max(300, 90000 - i * 140)))
     for i in range(900):
-        rows["KOSDAQ"].append(("8%05d" % i, "코스닥기타%d" % i, 3000 + i, max(200, 14000 - i * 15)))
+        rows["KOSDAQ"].append(("8%04d0" % i, "코스닥기타%d" % i, 3000 + i, max(200, 14000 - i * 15)))
     for mk in rows:
         rows[mk].sort(key=lambda r: -r[3])
     return rows
@@ -89,11 +98,20 @@ def market_sum_html(market, page):
 
 
 # --- synthetic index holdings ----------------------------------------------------------------
+ETF_CODES_FAKE = {"069500", "360750", "102110", "148020", "278530", "122630", "252670",
+                  "229200", "232080", "233740", "396500", "488080", "466920"}
+
+
+def eligible(market):
+    return [r for r in UNIV[market]
+            if collect.is_common_stock(r[0], r[1], ETF_CODES_FAKE)]
+
+
 def holdings_for(etf_code):
     if etf_code == "069500":       # KODEX 200 -> KOSPI 상위 200
-        pool = UNIV["KOSPI"][:200]
+        pool = eligible("KOSPI")[:200]
     elif etf_code == "229200":     # KODEX 코스닥150
-        pool = UNIV["KOSDAQ"][:150]
+        pool = eligible("KOSDAQ")[:150]
     elif etf_code == "396500":     # TIGER 반도체TOP10
         names = ["삼성전자", "SK하이닉스", "리노공업", "이오테크닉스", "원익IPS", "유진테크",
                  "솔브레인", "삼성전기", "고려아연", "파크시스템스"]
@@ -127,6 +145,7 @@ def holdings_for(etf_code):
 
 ETF_LIST = [
     {"itemcode": "069500", "itemname": "KODEX 200", "marketSum": 60000, "nav": 40000, "nowVal": 40000},
+    {"itemcode": "360750", "itemname": "TIGER 미국S&P500", "marketSum": 200000, "nav": 22000, "nowVal": 22000},
     {"itemcode": "102110", "itemname": "TIGER 200", "marketSum": 25000, "nav": 40000, "nowVal": 40000},
     {"itemcode": "148020", "itemname": "KBSTAR 200", "marketSum": 12000, "nav": 40000, "nowVal": 40000},
     {"itemcode": "278530", "itemname": "KODEX 200TR", "marketSum": 18000, "nav": 40000, "nowVal": 40000},
@@ -211,10 +230,21 @@ def main():
                 r.get("days_to_cover"), r.get("rank")))
     # assertions
     assert latest["universe"] > 1400
+    st = json.load(open(os.path.join(tmp, "status.json"), encoding="utf-8"))
+    assert st["universe_raw"] - st["universe"] >= 6, (st["universe_raw"], st["universe"])
+    print("universe filtered:", st["universe_raw"], "->", st["universe"])
+    bad = {"삼성전자우", "KODEX 200", "TIGER 미국S&P500", "이지스레지던스리츠",
+           "대신밸런스제18호스팩", "삼성 레버리지 WTI원유 ETN"}
+    for ix in latest["indices"]:
+        offenders = [r["name"] for r in ix["rows"] if r["name"] in bad]
+        assert not offenders, (ix["key"], offenders)
+        assert not [h for h in ix["holdings"] if h["name"] in bad], ix["key"]
     k2 = next(i for i in latest["indices"] if i["key"] == "kospi200")
     assert k2["member_count"] == 200, k2["member_count"]
     assert abs(k2["aum"] - 115000 * 1e8) < 1e8, k2["aum"]          # 200 + 200TR only
     assert any(r["side"] == "in" for r in k2["rows"]) and any(r["side"] == "out" for r in k2["rows"])
+    outs = [r for r in k2["rows"] if r["side"] == "out"]
+    assert all(r["flow"] < 0 and r["weight"] < 0 for r in outs), "편출 수급이 0이거나 부호가 잘못됨"
     kq = next(i for i in latest["indices"] if i["key"] == "kosdaq150")
     assert kq["member_count"] == 150
     assert abs(kq["aum"] - 13000 * 1e8) < 1e8, kq["aum"]           # leverage excluded

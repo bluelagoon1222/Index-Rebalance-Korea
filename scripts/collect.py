@@ -194,6 +194,26 @@ def parse_market_sum(html):
     return out
 
 
+# 지수 구성 대상이 아닌 종목: 우선주(종목코드 끝자리가 0이 아님), ETF·ETN, 스팩, 리츠.
+# 네이버 시가총액 페이지는 이들을 모두 섞어서 주므로 걸러내지 않으면 시총 순위와 편입 후보가 오염된다.
+INELIGIBLE_NAME = re.compile(r"스팩|기업인수목적|리츠|위탁관리부동산|ETN|레버리지|인버스|선물")
+# ETF 목록 API에서 빠진 상품이 있어도 걸러지도록, ETF 전용 브랜드로 시작하는 이름은 제외한다.
+# (한글 브랜드나 '삼성'처럼 회사명과 겹치는 접두어는 쓰지 않는다)
+ETF_BRAND = re.compile(r"^(KODEX|TIGER|KBSTAR|HANARO|KOSEF|ARIRANG|ACE|SOL|RISE|PLUS|TIMEFOLIO"
+                       r"|TREX|FOCUS|KIWOOM|WOORI|BNK)\b", re.I)
+
+
+def is_common_stock(code, name, etf_codes):
+    if not code or len(code) != 6 or code[-1] != "0":
+        return False          # 우선주·신주인수권 등 (보통주는 끝자리 0)
+    if code in etf_codes:
+        return False          # ETF
+    name = name or ""
+    if INELIGIBLE_NAME.search(name) or ETF_BRAND.match(name):
+        return False
+    return True
+
+
 def fetch_universe(h, market):
     """All pages of the market-cap ranking for one market."""
     out, page, sosok = {}, 1, MARKET_SOSOK[market]
@@ -284,18 +304,25 @@ def resolve_holdings(rows, universe):
     by_name = {}
     for code, u in universe.items():
         by_name.setdefault(norm_name(u["name"]), code)
-    out, unmatched = [], []
+    out, unmatched, fuzzy = [], [], []
     for r in rows:
         if CASHLIKE.search(r["name"]):
             continue
-        code = by_name.get(norm_name(r["name"]))
+        nm = norm_name(r["name"])
+        code = by_name.get(nm)
+        if not code and len(nm) >= 4:
+            # 사명 표기가 조금 다른 경우(분할·상호변경 직후 등)를 위한 유일 접두 일치
+            cand = [c for n, c in by_name.items() if len(n) >= 4 and (n.startswith(nm) or nm.startswith(n))]
+            if len(set(cand)) == 1:
+                code = cand[0]
+                fuzzy.append("%s -> %s" % (r["name"], universe[code]["name"]))
         if not code:
             unmatched.append(r["name"])
             continue
         u = universe[code]
         out.append({**r, "code": code, "name": u["name"], "mcap": u["mcap"], "market": u["market"],
                     "close": u["close"]})
-    return out, unmatched
+    return out, unmatched, fuzzy
 
 
 # ----------------------------------------------------------------------------------------------
@@ -339,6 +366,9 @@ def screen_krx(idx, holdings, universe, aum, n_show=15):
         u["rank"] = rank
 
     index_mcap = sum(u["mcap"] for u in pool if u["code"] in members) or 1
+    # ETF 보유내역의 비중은 소수 둘째 자리까지만 공시돼 소형 구성종목이 0.00~0.01%로 뭉개진다.
+    # KOSPI200·코스닥150은 시가총액 가중 지수이므로 수급 추정은 시총 기준 비중으로 계산하고,
+    # 공시 비중은 대조용으로만 함께 표시한다.
     weight_by_code = {hd["code"]: hd["weight"] for hd in holdings}
 
     outs = sorted([u for u in pool if u["code"] in members], key=lambda u: -u["rank"])[:n_show]
@@ -354,7 +384,7 @@ def screen_krx(idx, holdings, universe, aum, n_show=15):
         if side == "in":
             nw = u["mcap"] / (index_mcap + u["mcap"]) * 100
         else:
-            nw = -(w if w is not None else u["mcap"] / index_mcap * 100)
+            nw = -(u["mcap"] / index_mcap * 100)
         flow = aum * nw / 100
         return {"code": u["code"], "name": u["name"], "market": u["market"], "rank": u["rank"],
                 "mcap": u["mcap"], "close": u["close"], "side": side,
@@ -415,26 +445,41 @@ def main():
     state = load_json(os.path.join(DATA, "state.json"), {"snapshots": {}})
     prev = load_json(os.path.join(DATA, "latest.json"), {})
 
+    # ETF 목록을 먼저 받아 둔다: 추종자금 집계에도 쓰고, 전종목 목록에서 ETF를 걸러내는 데도 쓴다.
+    etfs = []
+    try:
+        etfs = fetch_etf_list(h)
+    except Exception as e:  # noqa
+        log("etf list failed:", e)
+    etf_codes = {e["code"] for e in etfs if e.get("code")}
+
     # universe
-    universe = {}
+    raw_universe = {}
     try:
         for mk in ("KOSPI", "KOSDAQ"):
-            universe.update(fetch_universe(h, mk))
+            raw_universe.update(fetch_universe(h, mk))
     except Exception as e:  # noqa
         log("universe failed:", e)
+    universe = {c: u for c, u in raw_universe.items()
+                if is_common_stock(c, u.get("name"), etf_codes) and u.get("mcap")}
+    # 안전장치: '보통주는 종목코드 끝자리 0' 규칙이 이 목록에 맞지 않아 대부분이 걸러졌다면
+    # 그 규칙만 빼고 ETF·ETN·스팩·리츠 제외만 적용한다. 잘못된 가정으로 사이트가 비는 것을 막는다.
+    if raw_universe and len(universe) < len(raw_universe) * 0.4:
+        log("WARNING: 끝자리 규칙으로 %d/%d만 남아 규칙을 완화합니다"
+            % (len(universe), len(raw_universe)))
+        universe = {c: u for c, u in raw_universe.items()
+                    if c not in etf_codes and u.get("mcap")
+                    and not INELIGIBLE_NAME.search(u.get("name") or "")
+                    and not ETF_BRAND.match(u.get("name") or "")}
+        status["message"] = "종목코드 규칙이 맞지 않아 우선주 제외를 생략했습니다(순위에 우선주가 섞일 수 있음)."
+    log("universe filtered: %d -> %d (우선주·ETF·ETN·스팩·리츠 %d개 제외)"
+        % (len(raw_universe), len(universe), len(raw_universe) - len(universe)))
     if len(universe) < 500:
         status.update({"ok": False, "message": "전종목 시가총액 수집 실패(%d건) — 직전 데이터를 유지합니다." % len(universe)})
         log("ERROR: universe too small, keeping previous data")
         save_json(os.path.join(DATA, "status.json"), {**status, "finished": dt.datetime.now(KST).strftime("%Y-%m-%d %H:%M KST"),
                                                       "minutes": round(elapsed_min(), 1)})
         return
-
-    # etf list for AUM
-    etfs = []
-    try:
-        etfs = fetch_etf_list(h)
-    except Exception as e:  # noqa
-        log("etf list failed:", e)
 
     out_indices = []
     turnover_cache = {}
@@ -443,8 +488,10 @@ def main():
         rec["etf"] = idx["etf"]
         try:
             raw, pdf_date = fetch_holdings(h, idx["etf"])
-            holdings, unmatched = resolve_holdings(raw, universe)
+            holdings, unmatched, fuzzy = resolve_holdings(raw, universe)
             holdings = normalize_weights(holdings)
+            if fuzzy:
+                log("name matched loosely:", "; ".join(fuzzy[:5]))
         except Exception as e:  # noqa
             log("holdings failed", idx["key"], e)
             old = next((i for i in (prev.get("indices") or []) if i.get("key") == idx["key"]), None)
@@ -460,7 +507,7 @@ def main():
             "aum": int(aum), "aum_auto": int(aum_auto), "aum_default": int(idx["aum_default"]),
             "aum_etfs": [{"code": e["code"], "name": e["name"], "aum": int(e["aum"] or 0)}
                          for e in sorted(hits, key=lambda x: -(x["aum"] or 0))],
-            "unmatched": unmatched[:10],
+            "unmatched": unmatched[:10], "fuzzy": fuzzy[:10],
             "holdings": [{"code": hd["code"], "name": hd["name"], "weight": round(hd["weight"], 4),
                           "mcap": hd["mcap"]} for hd in holdings],
         })
@@ -513,6 +560,8 @@ def main():
     save_json(os.path.join(DATA, "state.json"), state, compact=True)
     status.update({"finished": dt.datetime.now(KST).strftime("%Y-%m-%d %H:%M KST"),
                    "minutes": round(elapsed_min(), 1), "universe": len(universe),
+                   "universe_raw": len(raw_universe),
+                   "unmatched": {i["key"]: i.get("unmatched") for i in out_indices if i.get("unmatched")},
                    "indices": len(out_indices),
                    "stale": [i["key"] for i in out_indices if i.get("stale")]})
     save_json(os.path.join(DATA, "status.json"), status)
