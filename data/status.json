@@ -1,20 +1,7 @@
 {
- "ok": true,
- "message": "",
- "started": "2026-09-10 10:06 KST",
- "finished": "2026-09-10 10:07 KST",
- "minutes": 1.5,
- "universe": 2018,
- "universe_raw": 2567,
- "unmatched": {
-  "kospi200": [
-   "삼성에피스홀딩스",
-   "한화머시너리앤서비스홀딩스"
-  ],
-  "kosdaq150": [
-   "에임드바이오"
-  ]
- },
- "indices": 3,
- "stale": []
+ "ok": false,
+ "message": "전종목 시가총액 수집 실패(0건) — 직전 데이터를 유지합니다.",
+ "started": "2026-09-10 22:48 KST",
+ "finished": "2026-09-10 22:49 KST",
+ "minutes": 0.1
 }
