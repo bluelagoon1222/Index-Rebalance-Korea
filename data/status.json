@@ -1,14 +1,13 @@
 {
  "ok": true,
  "message": "",
- "started": "2026-09-09 21:31 KST",
- "finished": "2026-09-09 21:33 KST",
- "minutes": 2.8,
- "universe": 1590,
- "universe_raw": 2536,
+ "started": "2026-09-10 10:06 KST",
+ "finished": "2026-09-10 10:07 KST",
+ "minutes": 1.5,
+ "universe": 2018,
+ "universe_raw": 2567,
  "unmatched": {
   "kospi200": [
-   "메리츠금융지주",
    "삼성에피스홀딩스",
    "한화머시너리앤서비스홀딩스"
   ],
