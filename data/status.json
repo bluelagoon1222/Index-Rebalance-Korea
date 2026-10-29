@@ -1,11 +1,11 @@
 {
  "ok": true,
  "message": "",
- "started": "2026-10-29 11:28 KST",
- "finished": "2026-10-29 11:30 KST",
- "minutes": 2.1,
- "universe": 2527,
- "universe_raw": 3885,
+ "started": "2026-10-30 01:24 KST",
+ "finished": "2026-10-30 01:26 KST",
+ "minutes": 1.8,
+ "universe": 2529,
+ "universe_raw": 3887,
  "unmatched": {
   "kospi200": [
    "삼성에피스홀딩스",
