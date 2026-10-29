@@ -215,7 +215,81 @@ def is_common_stock(code, name, etf_codes):
     return True
 
 
+MOBILE_MV = "https://m.stock.naver.com/api/stocks/marketValue/%s"
+NV_M = {"User-Agent": UA, "Accept": "application/json, */*", "Accept-Language": "ko-KR,ko;q=0.9",
+        "Referer": "https://m.stock.naver.com/"}
+
+
+def _mv_scale(values):
+    """marketValue 단위 자동 판별: 최대값(삼성전자급) 크기로 억원/백만원/원을 구분한다."""
+    vals = [v for v in values if v]
+    if not vals:
+        return 1
+    top = max(vals)
+    if top < 1e8:
+        return 100000000      # 억원
+    if top < 1e11:
+        return 1000000        # 백만원
+    return 1                  # 원
+
+
+def fetch_universe_mobile(h, market):
+    """Fallback (2026-10): 네이버 PC 시가총액 HTML이 종목표 없이 내려와 모바일 JSON으로 대체."""
+    raw, seen = [], set()
+    for page in range(1, 80):
+        js = h.get(MOBILE_MV % market, NV_M, params={"page": page, "pageSize": 100}, mode="json")
+        stocks = js.get("stocks") if isinstance(js, dict) else (js if isinstance(js, list) else [])
+        if not stocks:
+            break
+        added = 0
+        for it in stocks:
+            if not isinstance(it, dict):
+                continue
+            code = str(it.get("itemCode") or it.get("code") or "")
+            if not re.fullmatch(r"\d{6}", code) or code in seen:
+                continue
+            seen.add(code)
+            added += 1
+            raw.append({
+                "code": code,
+                "name": it.get("stockName") or it.get("name") or "",
+                "close": to_int(it.get("closePrice")),
+                "mv": to_float(it.get("marketValue")),
+                "shares": None,
+                "volume": to_int(it.get("accumulatedTradingVolume")),
+                "foreign_pct": None,
+                "market": market,
+            })
+        total = js.get("totalCount") if isinstance(js, dict) else None
+        if added == 0 or (total and len(raw) >= int(total)):
+            break
+    scale = _mv_scale([r["mv"] for r in raw])
+    out = {}
+    for r in raw:
+        mv = r.pop("mv")
+        r["mcap"] = int(mv * scale) if mv else None
+        out[r["code"]] = r
+    log("universe(mobile)", market, len(out), "listings, marketValue scale x%d" % scale)
+    return out
+
+
 def fetch_universe(h, market):
+    """PC HTML 우선, 0건이면 모바일 JSON으로 대체."""
+    out = {}
+    try:
+        out = fetch_universe_html(h, market)
+    except Exception as e:  # noqa
+        log("universe html failed:", market, e)
+    if len(out) < 100:
+        log("universe html %s: %d rows -> mobile api fallback" % (market, len(out)))
+        try:
+            out = fetch_universe_mobile(h, market)
+        except Exception as e:  # noqa
+            log("universe mobile failed:", market, e)
+    return out
+
+
+def fetch_universe_html(h, market):
     """All pages of the market-cap ranking for one market."""
     out, page, sosok, quiet = {}, 1, MARKET_SOSOK[market], 0
     while page <= 80:
