@@ -1,11 +1,11 @@
 {
  "ok": true,
  "message": "",
- "started": "2026-10-30 11:38 KST",
- "finished": "2026-10-30 11:39 KST",
- "minutes": 1.5,
- "universe": 2528,
- "universe_raw": 3885,
+ "started": "2026-10-31 01:13 KST",
+ "finished": "2026-10-31 01:19 KST",
+ "minutes": 5.4,
+ "universe": 2531,
+ "universe_raw": 3888,
  "unmatched": {
   "kospi200": [
    "삼성에피스홀딩스",
@@ -16,5 +16,9 @@
   ]
  },
  "indices": 3,
- "stale": []
+ "stale": [
+  "kospi200",
+  "kosdaq150",
+  "semi_top10"
+ ]
 }
